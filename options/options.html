@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RSVP Speed Read - Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+    <h1>RSVP Speed Read Settings</h1>
+
+    <div class="section">
+      <h2>Reading Speed</h2>
+      <div class="control">
+        <label for="wpm">Default WPM (Words Per Minute): <span id="wpm-value">400</span></label>
+        <input type="range" id="wpm" min="100" max="1500" value="400" step="50">
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Appearance</h2>
+      <div class="control">
+        <label for="fontSize">Font Size: <span id="font-size-value">48</span>px</label>
+        <input type="range" id="fontSize" min="32" max="72" value="48">
+      </div>
+      <div class="control">
+        <label for="theme">Theme</label>
+        <select id="theme">
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Behavior</h2>
+      <div class="control checkbox">
+        <input type="checkbox" id="punctuationPause" checked>
+        <label for="punctuationPause">Pause on punctuation (commas, periods, etc.)</label>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Keyboard Shortcut</h2>
+      <div class="shortcut-display">
+        <code>Ctrl + Shift + Y</code>
+        <p class="hint">To change, go to Chrome Extensions page → Keyboard shortcuts</p>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>About</h2>
+      <p class="about">RSVP Speed Read v1.0.0</p>
+      <p class="about">Speed read any web page using Rapid Serial Visual Presentation</p>
+    </div>
+
+    <div class="section">
+      <button id="save" class="btn-primary">Save Settings</button>
+      <span id="saved-message">Saved!</span>
+    </div>
+  </div>
+  <script src="options.js"></script>
+</body>
+</html>
