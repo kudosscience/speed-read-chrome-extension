@@ -182,6 +182,13 @@
           <span class="sr-word sr-next2"></span>
         </div>
         <div class="sr-controls">
+          <div class="sr-control-buttons">
+            <button class="sr-btn sr-prev" title="Previous sentence">⏮</button>
+            <button class="sr-btn sr-play" title="Play/Pause">▶</button>
+            <button class="sr-btn sr-next" title="Next sentence">⏭</button>
+            <button class="sr-btn sr-speed-down" title="Slower">−</button>
+            <button class="sr-btn sr-speed-up" title="Faster">+</button>
+          </div>
           <div class="sr-progress-container">
             <div class="sr-progress-bar"></div>
           </div>
@@ -257,6 +264,23 @@
         width: 80%;
         max-width: 600px;
       }
+      .sr-control-buttons {
+        display: flex;
+        justify-content: center;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      .sr-btn {
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.08);
+        color: #fff;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 16px;
+        cursor: pointer;
+      }
+      .sr-btn:active { transform: scale(0.98); }
+      .sr-btn[disabled] { opacity: 0.4; cursor: default; }
       .sr-progress-container {
         width: 100%;
         height: 4px;
@@ -329,6 +353,19 @@
     wpmDisplay.textContent = `${state.wpm} WPM`;
 
     savePosition(index);
+  }
+
+  function updatePlayButton() {
+    if (!state.overlay) return;
+    const btn = state.overlay.querySelector('.sr-play');
+    if (!btn) return;
+    if (!state.isPlaying) {
+      btn.textContent = '▶';
+    } else if (state.isPaused) {
+      btn.textContent = '▶';
+    } else {
+      btn.textContent = '⏸';
+    }
   }
 
   function getPageKey() {
@@ -404,16 +441,19 @@
     state.isPaused = false;
     state.lastFrameTime = 0;
     state.accumulator = 0;
+    updatePlayButton();
     requestAnimationFrame(tick);
   }
 
   function pause() {
     state.isPaused = true;
+    updatePlayButton();
   }
 
   function resume() {
     state.isPaused = false;
     state.lastFrameTime = 0;
+    updatePlayButton();
     requestAnimationFrame(tick);
   }
 
@@ -424,6 +464,7 @@
       state.overlay.remove();
       state.overlay = null;
     }
+    // no overlay to update
   }
 
   function skipToNextSentence() {
@@ -528,6 +569,58 @@
 
         loading.classList.remove('sr-visible');
         document.addEventListener('keydown', handleKeydown);
+
+        // Attach mouse controls to overlay buttons
+        try {
+          const playBtn = state.overlay.querySelector('.sr-play');
+          const prevBtn = state.overlay.querySelector('.sr-prev');
+          const nextBtn = state.overlay.querySelector('.sr-next');
+          const speedUpBtn = state.overlay.querySelector('.sr-speed-up');
+          const speedDownBtn = state.overlay.querySelector('.sr-speed-down');
+
+          if (playBtn) {
+            playBtn.addEventListener('click', () => {
+              if (!state.isPlaying) {
+                start();
+              } else if (state.isPaused) {
+                resume();
+              } else {
+                pause();
+              }
+            });
+          }
+
+          if (prevBtn) {
+            prevBtn.addEventListener('click', () => {
+              pause();
+              skipToPrevSentence();
+            });
+          }
+
+          if (nextBtn) {
+            nextBtn.addEventListener('click', () => {
+              pause();
+              skipToNextSentence();
+            });
+          }
+
+          if (speedUpBtn) {
+            speedUpBtn.addEventListener('click', () => {
+              saveWpm(state.wpm + 50);
+              updateDisplay(state.currentIndex);
+            });
+          }
+
+          if (speedDownBtn) {
+            speedDownBtn.addEventListener('click', () => {
+              saveWpm(state.wpm - 50);
+              updateDisplay(state.currentIndex);
+            });
+          }
+        } catch (e) {
+          // ignore if overlay not present or handlers fail
+        }
+
         updateDisplay(state.currentIndex);
         start();
       }, 50);
