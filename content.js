@@ -559,6 +559,7 @@
   function stop() {
     state.isPlaying = false;
     state.isPaused = false;
+    document.removeEventListener('keydown', handleKeydown);
     if (state.overlay) {
       state.overlay.remove();
       state.overlay = null;
