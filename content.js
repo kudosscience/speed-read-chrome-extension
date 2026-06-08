@@ -10,6 +10,7 @@
     lastFrameTime: 0,
     accumulator: 0,
     overlay: null,
+    lowQuality: false,
     settings: {
       fontSize: 48,
       theme: 'dark',
@@ -86,17 +87,28 @@
     const remove = clone.querySelectorAll('script, style, nav, footer, aside, .nav, .footer, .sidebar, .ad, .advertisement, .comments, .related, [role="navigation"]');
     remove.forEach(n => n.remove());
 
-    for (const part of sentences) {
+    let text = clone.textContent;
+    text = text.replace(/\s+/g, ' ').trim();
     return text;
   }
 
-        markSentenceEnd(words, part);
+  function tokenize(text) {
+    const words = [];
+    const sentences = text.split(/([.!?]+)/);
 
+    let sentenceStart = true;
+    for (const part of sentences) {
+      if (!part) continue;
+
+      if (/^[.!?]+$/.test(part)) {
+        markSentenceEnd(words, part);
+        sentenceStart = true;
         continue;
       }
 
       sentenceStart = appendTextTokens(words, part, sentenceStart);
     }
+
     return words;
   }
 
@@ -125,29 +137,6 @@
       sentenceStart = false;
     }
     return sentenceStart;
-  }
-        if (words.length > 0) {
-          words[words.length - 1].isSentenceEnd = true;
-          words[words.length - 1].punctuation = part;
-        }
-        sentenceStart = true;
-      } else {
-        const tokens = part.split(/(\s+)/);
-        for (const token of tokens) {
-          if (!token.trim()) continue;
-          const lastChar = token.slice(-1);
-          const isPunctuation = /[,;:.!?]/.test(lastChar);
-          words.push({
-            text: token,
-            isSentenceEnd: false,
-            punctuation: isPunctuation ? lastChar : null,
-            isNewSentence: sentenceStart
-          });
-          sentenceStart = false;
-        }
-      }
-    }
-    return words;
   }
 
   function buildDisplayHtml(words) {
@@ -625,6 +614,7 @@
 
   function initializeReadingSession(mode, text, targetSelector, loading) {
     let extractedText = null;
+    state.lowQuality = false;
 
     if (mode === 'selection' && text) {
       extractedText = text;
@@ -642,6 +632,11 @@
         stop();
       }, 2000);
       return;
+    }
+
+    if (extractedText.length < 200) {
+      state.lowQuality = true;
+      loading.textContent = 'Low quality content found';
     }
 
     const rawWords = tokenize(extractedText);
