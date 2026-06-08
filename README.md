@@ -43,7 +43,7 @@ RSVP Speed Read eliminates eye movement entirely. Instead of scrolling through t
 
 ### Step 1: Download the Extension
 
-**[Click here to download as ZIP](https://github.com/kudosscience/speed-read-chrome-extension/archive/refs/heads/master.zip)** or go to the [releases page](https://github.com/kudosscience/speed-read-chrome-extension/releases) and download the latest version.
+**[Click here to download as ZIP](https://github.com/kudosscience/speed-read-chrome-extension/archive/refs/tags/v.1.1.0.zip)** or go to the [releases page](https://github.com/kudosscience/speed-read-chrome-extension/releases) and download the latest version.
 
 ### Step 2: Extract the Files
 
