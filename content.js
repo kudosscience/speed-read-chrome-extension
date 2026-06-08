@@ -636,10 +636,6 @@
       extractedText = extractTextLightweight();
     }
 
-    if (!extractedText || extractedText.length < 200) {
-      extractedText = null;
-    }
-
     if (!extractedText || extractedText.length < 50) {
       loading.textContent = 'No readable content found';
       setTimeout(() => {
