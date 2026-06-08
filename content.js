@@ -10,6 +10,7 @@
     lastFrameTime: 0,
     accumulator: 0,
     overlay: null,
+    lowQuality: false,
     settings: {
       fontSize: 48,
       theme: 'dark',
@@ -39,7 +40,7 @@
   }
 
   function saveWpm(wpm) {
-    state.wpm = Math.max(100, Math.min(1500, wpm));
+    state.wpm = clampWpm(wpm);
     chrome.storage.local.set({ speedReadWpm: state.wpm });
   }
 
@@ -91,49 +92,51 @@
     return text;
   }
 
-  function extractFromElement(selector) {
-    try {
-      const el = document.querySelector(selector);
-      if (el) {
-        return cleanText(el);
-      }
-    } catch (e) {}
-    return null;
-  }
-
   function tokenize(text) {
     const words = [];
     const sentences = text.split(/([.!?]+)/);
 
     let sentenceStart = true;
-    for (let i = 0; i < sentences.length; i++) {
-      const part = sentences[i];
+    for (const part of sentences) {
       if (!part) continue;
 
       if (/^[.!?]+$/.test(part)) {
-        if (words.length > 0) {
-          words[words.length - 1].isSentenceEnd = true;
-          words[words.length - 1].punctuation = part;
-        }
+        markSentenceEnd(words, part);
         sentenceStart = true;
-      } else {
-        const tokens = part.split(/(\s+)/);
-        for (const token of tokens) {
-          if (!token.trim()) continue;
-          const lastChar = token.slice(-1);
-          const isPunctuation = /[,;:.!?]/.test(lastChar);
-          words.push({
-            text: token,
-            displayHtml: token,
-            isSentenceEnd: false,
-            punctuation: isPunctuation ? lastChar : null,
-            isNewSentence: sentenceStart
-          });
-          sentenceStart = false;
-        }
+        continue;
       }
+
+      sentenceStart = appendTextTokens(words, part, sentenceStart);
     }
+
     return words;
+  }
+
+  function markSentenceEnd(words, punctuation) {
+    const lastWord = words.at(-1);
+    if (!lastWord) {
+      return;
+    }
+
+    lastWord.isSentenceEnd = true;
+    lastWord.punctuation = punctuation;
+  }
+
+  function appendTextTokens(words, part, sentenceStart) {
+    const tokens = part.split(/(\s+)/);
+    for (const token of tokens) {
+      if (!token.trim()) continue;
+      const lastChar = token.slice(-1);
+      const isPunctuation = /[,;:.!?]/.test(lastChar);
+      words.push({
+        text: token,
+        isSentenceEnd: false,
+        punctuation: isPunctuation ? lastChar : null,
+        isNewSentence: sentenceStart
+      });
+      sentenceStart = false;
+    }
+    return sentenceStart;
   }
 
   function buildDisplayHtml(words) {
@@ -146,23 +149,51 @@
       const highlighted = text.slice(0, highlightCount);
       const rest = text.slice(highlightCount);
 
-      let html = '';
-      if (highlighted) {
-        html += `<span class="sr-focus">${escapeHtml(highlighted)}</span>`;
-      }
-      if (rest) {
-        html += `<span class="sr-rest">${escapeHtml(rest)}</span>`;
-      }
-      if (punct) {
-        html += `<span class="sr-punct">${escapeHtml(punct)}</span>`;
-      }
-
-      return { ...w, displayHtml: html };
+      return {
+        ...w,
+        displayParts: {
+          focus: highlighted,
+          rest: rest,
+          punct: punct
+        }
+      };
     });
   }
 
-  function escapeHtml(str) {
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  function clampWpm(value) {
+    return Math.max(100, Math.min(1500, value));
+  }
+
+  function adjustWpm(delta) {
+    saveWpm(clampWpm(state.wpm + delta));
+  }
+
+  function renderWord(container, word) {
+    container.replaceChildren();
+    if (!word?.displayParts) {
+      return;
+    }
+
+    if (word.displayParts.focus) {
+      const focusSpan = document.createElement('span');
+      focusSpan.className = 'sr-focus';
+      focusSpan.textContent = word.displayParts.focus;
+      container.appendChild(focusSpan);
+    }
+
+    if (word.displayParts.rest) {
+      const restSpan = document.createElement('span');
+      restSpan.className = 'sr-rest';
+      restSpan.textContent = word.displayParts.rest;
+      container.appendChild(restSpan);
+    }
+
+    if (word.displayParts.punct) {
+      const punctSpan = document.createElement('span');
+      punctSpan.className = 'sr-punct';
+      punctSpan.textContent = word.displayParts.punct;
+      container.appendChild(punctSpan);
+    }
   }
 
   function createOverlay() {
@@ -171,28 +202,103 @@
 
     const overlay = document.createElement('div');
     overlay.id = 'sr-overlay';
-    overlay.innerHTML = `
-      <div class="sr-backdrop"></div>
-      <div class="sr-container">
-        <div class="sr-display">
-          <span class="sr-word sr-prev2"></span>
-          <span class="sr-word sr-prev1"></span>
-          <span class="sr-word sr-focus-word"></span>
-          <span class="sr-word sr-next1"></span>
-          <span class="sr-word sr-next2"></span>
-        </div>
-        <div class="sr-controls">
-          <div class="sr-progress-container">
-            <div class="sr-progress-bar"></div>
-          </div>
-          <div class="sr-stats">
-            <span class="sr-wpm">${state.wpm} WPM</span>
-            <span class="sr-counter">0 / 0</span>
-          </div>
-        </div>
-        <div class="sr-loading">Extracting text...</div>
-      </div>
-    `;
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'sr-backdrop';
+
+    const container = document.createElement('div');
+    container.className = 'sr-container';
+
+    const display = document.createElement('div');
+    display.className = 'sr-display';
+
+    const prev2 = document.createElement('span');
+    prev2.className = 'sr-word sr-prev2';
+
+    const prev1 = document.createElement('span');
+    prev1.className = 'sr-word sr-prev1';
+
+    const focus = document.createElement('span');
+    focus.className = 'sr-word sr-focus-word';
+
+    const next1 = document.createElement('span');
+    next1.className = 'sr-word sr-next1';
+
+    const next2 = document.createElement('span');
+    next2.className = 'sr-word sr-next2';
+
+    display.append(prev2, prev1, focus, next1, next2);
+
+    const controls = document.createElement('div');
+    controls.className = 'sr-controls';
+
+    const controlButtons = document.createElement('div');
+    controlButtons.className = 'sr-control-buttons';
+
+    const prevBtn = document.createElement('button');
+    prevBtn.type = 'button';
+    prevBtn.className = 'sr-btn sr-prev';
+    prevBtn.title = 'Previous sentence';
+    prevBtn.setAttribute('aria-label', 'Previous sentence');
+    prevBtn.textContent = '⏮';
+
+    const playBtn = document.createElement('button');
+    playBtn.type = 'button';
+    playBtn.className = 'sr-btn sr-play';
+    playBtn.title = 'Play/Pause';
+    playBtn.setAttribute('aria-label', 'Play/Pause');
+    playBtn.textContent = '▶';
+
+    const nextBtn = document.createElement('button');
+    nextBtn.type = 'button';
+    nextBtn.className = 'sr-btn sr-next';
+    nextBtn.title = 'Next sentence';
+    nextBtn.setAttribute('aria-label', 'Next sentence');
+    nextBtn.textContent = '⏭';
+
+    const speedDownBtn = document.createElement('button');
+    speedDownBtn.type = 'button';
+    speedDownBtn.className = 'sr-btn sr-speed-down';
+    speedDownBtn.title = 'Slower';
+    speedDownBtn.setAttribute('aria-label', 'Slower');
+    speedDownBtn.textContent = '−';
+
+    const speedUpBtn = document.createElement('button');
+    speedUpBtn.type = 'button';
+    speedUpBtn.className = 'sr-btn sr-speed-up';
+    speedUpBtn.title = 'Faster';
+    speedUpBtn.setAttribute('aria-label', 'Faster');
+    speedUpBtn.textContent = '+';
+
+    controlButtons.append(prevBtn, playBtn, nextBtn, speedDownBtn, speedUpBtn);
+
+    const progressContainer = document.createElement('div');
+    progressContainer.className = 'sr-progress-container';
+
+    const progressBar = document.createElement('div');
+    progressBar.className = 'sr-progress-bar';
+    progressContainer.appendChild(progressBar);
+
+    const stats = document.createElement('div');
+    stats.className = 'sr-stats';
+
+    const wpmDisplay = document.createElement('span');
+    wpmDisplay.className = 'sr-wpm';
+    wpmDisplay.textContent = `${state.wpm} WPM`;
+
+    const counter = document.createElement('span');
+    counter.className = 'sr-counter';
+    counter.textContent = '0 / 0';
+
+    stats.append(wpmDisplay, counter);
+
+    const loading = document.createElement('div');
+    loading.className = 'sr-loading';
+    loading.textContent = 'Extracting text...';
+
+    controls.append(controlButtons, progressContainer, stats);
+    container.append(display, controls, loading);
+    overlay.append(backdrop, container);
 
     document.body.appendChild(overlay);
 
@@ -257,6 +363,23 @@
         width: 80%;
         max-width: 600px;
       }
+      .sr-control-buttons {
+        display: flex;
+        justify-content: center;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      .sr-btn {
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.08);
+        color: #fff;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 16px;
+        cursor: pointer;
+      }
+      .sr-btn:active { transform: scale(0.98); }
+      .sr-btn[disabled] { opacity: 0.4; cursor: default; }
       .sr-progress-container {
         width: 100%;
         height: 4px;
@@ -317,7 +440,7 @@
     prev2.style.opacity = index >= 2 ? '1' : '0';
     prev1.textContent = w[index - 1]?.text || '';
     prev1.style.opacity = index >= 1 ? '1' : '0';
-    focus.innerHTML = w[index]?.displayHtml || '';
+    renderWord(focus, w[index]);
     next1.textContent = w[index + 1]?.text || '';
     next1.style.opacity = index + 1 < w.length ? '1' : '0';
     next2.textContent = w[index + 2]?.text || '';
@@ -331,29 +454,32 @@
     savePosition(index);
   }
 
+  function updatePlayButton() {
+    if (!state.overlay) return;
+    const btn = state.overlay.querySelector('.sr-play');
+    if (!btn) return;
+    btn.textContent = state.isPlaying && !state.isPaused ? '⏸' : '▶';
+  }
+
   function getPageKey() {
     return 'sr_pos_' + location.href;
   }
 
   function savePosition(index) {
-    try {
-      sessionStorage.setItem(getPageKey(), JSON.stringify({
-        index: index,
-        url: location.href
-      }));
-    } catch (e) {}
+    sessionStorage.setItem(getPageKey(), JSON.stringify({
+      index: index,
+      url: location.href
+    }));
   }
 
   function loadPosition() {
-    try {
-      const data = sessionStorage.getItem(getPageKey());
-      if (data) {
-        const parsed = JSON.parse(data);
-        if (parsed.url === location.href) {
-          return parsed.index;
-        }
+    const data = sessionStorage.getItem(getPageKey());
+    if (data) {
+      const parsed = JSON.parse(data);
+      if (parsed.url === location.href) {
+        return parsed.index;
       }
-    } catch (e) {}
+    }
     return 0;
   }
 
@@ -384,11 +510,10 @@
 
     const currentDelay = calculateWordDelay(state.words[state.currentIndex]);
 
-    while (state.accumulator >= currentDelay && state.currentIndex < state.words.length - 1) {
+    if (state.accumulator >= currentDelay && state.currentIndex < state.words.length - 1) {
       state.accumulator -= currentDelay;
       state.currentIndex++;
       updateDisplay(state.currentIndex);
-      break;
     }
 
     if (state.currentIndex >= state.words.length - 1) {
@@ -404,26 +529,131 @@
     state.isPaused = false;
     state.lastFrameTime = 0;
     state.accumulator = 0;
+    updatePlayButton();
     requestAnimationFrame(tick);
   }
 
   function pause() {
     state.isPaused = true;
+    updatePlayButton();
   }
 
   function resume() {
     state.isPaused = false;
     state.lastFrameTime = 0;
+    updatePlayButton();
     requestAnimationFrame(tick);
   }
 
   function stop() {
     state.isPlaying = false;
     state.isPaused = false;
+    document.removeEventListener('keydown', handleKeydown);
     if (state.overlay) {
       state.overlay.remove();
       state.overlay = null;
     }
+    // no overlay to update
+  }
+
+  function togglePlayback() {
+    if (!state.isPlaying) {
+      start();
+      return;
+    }
+
+    if (state.isPaused) {
+      resume();
+      return;
+    }
+
+    pause();
+  }
+
+  function goToPreviousSentence() {
+    pause();
+    skipToPrevSentence();
+  }
+
+  function goToNextSentence() {
+    pause();
+    skipToNextSentence();
+  }
+
+  function increaseSpeed() {
+    adjustWpm(50);
+    updateDisplay(state.currentIndex);
+  }
+
+  function decreaseSpeed() {
+    adjustWpm(-50);
+    updateDisplay(state.currentIndex);
+  }
+
+  function bindOverlayControls() {
+    const playBtn = state.overlay.querySelector('.sr-play');
+    const prevBtn = state.overlay.querySelector('.sr-prev');
+    const nextBtn = state.overlay.querySelector('.sr-next');
+    const speedUpBtn = state.overlay.querySelector('.sr-speed-up');
+    const speedDownBtn = state.overlay.querySelector('.sr-speed-down');
+
+    if (!playBtn || !prevBtn || !nextBtn || !speedUpBtn || !speedDownBtn) {
+      console.error('Speed Read: overlay controls failed to initialize');
+      stop();
+      return false;
+    }
+
+    playBtn.addEventListener('click', togglePlayback);
+    prevBtn.addEventListener('click', goToPreviousSentence);
+    nextBtn.addEventListener('click', goToNextSentence);
+    speedUpBtn.addEventListener('click', increaseSpeed);
+    speedDownBtn.addEventListener('click', decreaseSpeed);
+
+    return true;
+  }
+
+  function initializeReadingSession(mode, text, targetSelector, loading) {
+    let extractedText = null;
+    state.lowQuality = false;
+
+    if (mode === 'selection' && text) {
+      extractedText = text;
+    } else if (mode === 'nearest-article' && targetSelector) {
+      extractedText = extractFromElement(targetSelector);
+    }
+
+    if (!extractedText) {
+      extractedText = extractTextLightweight();
+    }
+
+    if (!extractedText || extractedText.length < 50) {
+      loading.textContent = 'No readable content found';
+      setTimeout(() => {
+        stop();
+      }, 2000);
+      return;
+    }
+
+    if (extractedText.length < 200) {
+      state.lowQuality = true;
+      loading.textContent = 'Low quality content found';
+    }
+
+    const rawWords = tokenize(extractedText);
+    state.words = buildDisplayHtml(rawWords);
+
+    const startIndex = loadPosition();
+    state.currentIndex = Math.min(startIndex, state.words.length - 1);
+
+    loading.classList.remove('sr-visible');
+    document.addEventListener('keydown', handleKeydown);
+
+    if (!bindOverlayControls()) {
+      return;
+    }
+
+    updateDisplay(state.currentIndex);
+    start();
   }
 
   function skipToNextSentence() {
@@ -468,12 +698,12 @@
         break;
       case 'ArrowUp':
         e.preventDefault();
-        saveWpm(state.wpm + 50);
+        adjustWpm(50);
         updateDisplay(state.currentIndex);
         break;
       case 'ArrowDown':
         e.preventDefault();
-        saveWpm(state.wpm - 50);
+        adjustWpm(-50);
         updateDisplay(state.currentIndex);
         break;
       case 'ArrowRight':
@@ -496,40 +726,7 @@
       loading.classList.add('sr-visible');
 
       setTimeout(() => {
-        let extractedText = null;
-
-        if (mode === 'selection' && text) {
-          extractedText = text;
-        } else if (mode === 'nearest-article' && targetSelector) {
-          extractedText = extractFromElement(targetSelector);
-        }
-
-        if (!extractedText) {
-          extractedText = extractTextLightweight();
-        }
-
-        if (!extractedText || extractedText.length < 200) {
-          extractedText = null;
-        }
-
-        if (!extractedText || extractedText.length < 50) {
-          loading.textContent = 'No readable content found';
-          setTimeout(() => {
-            stop();
-          }, 2000);
-          return;
-        }
-
-        const rawWords = tokenize(extractedText);
-        state.words = buildDisplayHtml(rawWords);
-
-        const startIndex = loadPosition();
-        state.currentIndex = Math.min(startIndex, state.words.length - 1);
-
-        loading.classList.remove('sr-visible');
-        document.addEventListener('keydown', handleKeydown);
-        updateDisplay(state.currentIndex);
-        start();
+        initializeReadingSession(mode, text, targetSelector, loading);
       }, 50);
     });
   }
